@@ -49,6 +49,14 @@ final class BugWatchServiceProvider extends ServiceProvider
     {
         $this->publishes([__DIR__ . '/config/bugwatch.php' => $this->app->configPath('bugwatch.php')], 'bugwatch-config');
 
+        /** @var \Illuminate\Config\Repository $cfg */
+        $cfg = $this->app->make('config');
+        if ((bool) $cfg->get('bugwatch.capture_exceptions', true)) {
+            $this->app->extend(\Illuminate\Contracts\Debug\ExceptionHandler::class, function (\Illuminate\Contracts\Debug\ExceptionHandler $handler, Application $app): \Illuminate\Contracts\Debug\ExceptionHandler {
+                return new BugWatchExceptionHandler($handler, $app->make(Client::class));
+            });
+        }
+
         // Register the "bugwatch" log channel driver: a Monolog logger wrapping our handler.
         // Note: LogManager::extend() rebinds the closure to itself, so we must NOT use self:: inside
         // the closure — extract the helper as a static fn captured by the closure instead.
