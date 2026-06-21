@@ -94,7 +94,7 @@ final class Client
 
     public function flush(): bool
     {
-        return $this->guard(function (): bool {
+        return (bool) $this->guard(function (): bool {
             $ok = true;
             while (!$this->queue->isEmpty()) {
                 $batch = $this->queue->drained($this->config->batchSize);
@@ -142,6 +142,7 @@ final class Client
         $this->scopes->current()->release = $release;
     }
 
+    /** @param string|array<int|string,mixed> $fingerprint */
     public function setFingerprint(string|array $fingerprint): void
     {
         $this->scopes->current()->fingerprint = $fingerprint;

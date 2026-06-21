@@ -97,4 +97,25 @@ final class ClientTest extends TestCase
         self::assertFalse($client->flush()); // reports failure, but does not throw
         self::assertNotSame('', $id);
     }
+
+    public function test_with_scope_pops_and_does_not_escape_on_throw(): void
+    {
+        [$client, $transport] = $this->client();
+        $client->setTag('a', '1');
+        $client->withScope(function ($scope): void {
+            $scope->tags['b'] = '2';
+            throw new \RuntimeException('boom');
+        });
+        // No exception escaped (guarded) AND the scope was popped → outer tags intact.
+        $client->captureMessage('after');
+        $client->flush();
+        self::assertSame(['a' => '1'], $transport->events[0]['tags']);
+    }
+
+    public function test_sampled_out_capture_still_returns_event_id(): void
+    {
+        [$client] = $this->client(['sampleRate' => 0.0]);
+        $id = $client->captureMessage('m');
+        self::assertStringStartsWith('bw_e_', $id);
+    }
 }
