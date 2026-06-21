@@ -30,8 +30,7 @@ final class BugWatchExceptionHandler implements ExceptionHandler
         return $this->inner->shouldReport($e);
     }
 
-    /** @phpstan-ignore-next-line (Symfony\Component\HttpFoundation\Response is a transitive dep not in our direct require) */
-    public function render($request, \Throwable $e): mixed
+    public function render($request, \Throwable $e): \Symfony\Component\HttpFoundation\Response
     {
         return $this->inner->render($request, $e);
     }

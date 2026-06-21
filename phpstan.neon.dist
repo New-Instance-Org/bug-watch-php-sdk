@@ -3,5 +3,5 @@ parameters:
     paths:
         - src
     treatPhpDocTypesAsCertain: false
-    scanDirectories:
-        - vendor/symfony/http-foundation
+    scanFiles:
+        - stubs/Symfony/Component/HttpFoundation/Response.php
