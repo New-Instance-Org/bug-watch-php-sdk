@@ -84,5 +84,40 @@ final class BugWatchServiceProvider extends ServiceProvider
 
             return new MonologLogger('bugwatch', [new Handler($app->make(Client::class), $level)]);
         });
+
+        $this->app->terminating(function (): void {
+            $this->safeFlush();
+        });
+
+        /** @var \Illuminate\Contracts\Events\Dispatcher $events */
+        $events = $this->app->make('events');
+        if (class_exists(\Illuminate\Queue\Events\JobProcessed::class)) {
+            $events->listen(\Illuminate\Queue\Events\JobProcessed::class, fn () => $this->safeFlushReset());
+            $events->listen(\Illuminate\Queue\Events\JobFailed::class, fn () => $this->safeFlushReset());
+        }
+        if (class_exists(\Illuminate\Console\Events\CommandFinished::class)) {
+            $events->listen(\Illuminate\Console\Events\CommandFinished::class, fn () => $this->safeFlush());
+        }
+        if (class_exists(\Laravel\Octane\Events\RequestTerminated::class)) {
+            $events->listen(\Laravel\Octane\Events\RequestTerminated::class, fn () => $this->safeFlushReset());
+        }
+    }
+
+    private function safeFlush(): void
+    {
+        try {
+            $this->app->make(Client::class)->flush();
+        } catch (\Throwable) {
+        }
+    }
+
+    private function safeFlushReset(): void
+    {
+        try {
+            $client = $this->app->make(Client::class);
+            $client->flush();
+            $client->resetScope();
+        } catch (\Throwable) {
+        }
     }
 }
