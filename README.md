@@ -80,6 +80,26 @@ Return it to the browser and use the BugWatch JS SDK (`@newinstance/bugwatch`) t
     composer stan   # phpstan
     composer cs     # php-cs-fixer (dry run)
 
+## Monolog (your existing logger, unchanged)
+
+    use Monolog\Logger;
+    use NewInstance\BugWatch\Integration\Monolog\Handler;
+
+    $log = new Logger('app');
+    $log->pushHandler(new Handler(BugWatch::client())); // add alongside your other handlers
+    $log->error('payment failed', ['exception' => $e]); // exceptions in context are captured
+
+Works with Monolog 2 and 3. Keep all your existing handlers — BugWatch is just one more.
+
+## Framework-less PHP (native handlers, opt-in)
+
+    use NewInstance\BugWatch\Handlers\ErrorHandler;
+
+    BugWatch::init(['projectKey' => getenv('BUGWATCH_KEY')]);
+    ErrorHandler::install(BugWatch::client()); // uncaught exceptions + errors + fatal shutdowns
+
+Handlers chain any previously-registered handler, respect `error_reporting()`, and never recurse.
+
 ## License
 
 MIT
