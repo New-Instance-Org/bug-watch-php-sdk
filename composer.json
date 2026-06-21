@@ -3,7 +3,7 @@
     "description": "BugWatch SDK for capturing logs, errors, and runtime context from PHP applications.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["bugwatch", "sdk", "logging", "errors", "observability", "psr-3", "monolog"],
+    "keywords": ["bugwatch", "sdk", "logging", "errors", "observability", "psr-3", "monolog", "laravel"],
     "require": {
         "php": "^8.2",
         "psr/log": "^3",
@@ -15,11 +15,13 @@
         "friendsofphp/php-cs-fixer": "^3.64",
         "guzzlehttp/guzzle": "^7.9",
         "monolog/monolog": "^3",
+        "orchestra/testbench": "^11",
         "phpstan/phpstan": "^1.12",
         "phpunit/phpunit": "^11"
     },
     "suggest": {
         "ext-curl": "Default zero-config HTTP transport",
+        "laravel/framework": "First-class Laravel integration (^11 || ^12 || ^13)",
         "monolog/monolog": "Send Monolog records to BugWatch (^2 || ^3)"
     },
     "autoload": {
@@ -34,6 +36,11 @@
         "stan": "phpstan analyse",
         "cs": "php-cs-fixer fix --dry-run --diff",
         "cs:fix": "php-cs-fixer fix"
+    },
+    "extra": {
+        "laravel": {
+            "providers": ["NewInstance\\BugWatch\\Laravel\\BugWatchServiceProvider"]
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true,
