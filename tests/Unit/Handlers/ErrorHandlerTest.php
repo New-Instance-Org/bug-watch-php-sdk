@@ -12,6 +12,13 @@ use PHPUnit\Framework\TestCase;
 
 final class ErrorHandlerTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        // Reset the singleton between tests so each wire() gets a fresh client/transport.
+        $ref = new \ReflectionProperty(ErrorHandler::class, 'instance');
+        $ref->setValue(null, null);
+    }
+
     private function wire(): array
     {
         $transport = new InMemoryTransport();
@@ -33,7 +40,9 @@ final class ErrorHandlerTest extends TestCase
     public function test_handle_error_maps_level_and_chains(): void
     {
         [$h, $client, $transport] = $this->wire();
+        $old = error_reporting(E_ALL);
         $ret = $h->handleError(E_USER_WARNING, 'careful', '/a.php', 10);
+        error_reporting($old);
         $client->flush();
 
         self::assertFalse($ret); // returns false so PHP's normal handler still runs

@@ -16,19 +16,14 @@ final class ErrorHandler
     private bool $errorRegistered = false;
     private bool $shutdownRegistered = false;
 
-    private function __construct(private Client $client)
+    private function __construct(private readonly Client $client)
     {
     }
 
     /** @param array{errors?:bool,exceptions?:bool,shutdown?:bool} $opts */
     public static function install(Client $client, array $opts = []): self
     {
-        if (self::$instance === null) {
-            self::$instance = new self($client);
-        } else {
-            self::$instance->client = $client;
-        }
-        $h = self::$instance;
+        $h = self::$instance ??= new self($client);
         if (($opts['exceptions'] ?? true) && !$h->exceptionRegistered) {
             $h->exceptionRegistered = true;
             $h->previousExceptionHandler = set_exception_handler([$h, 'handleException']);
@@ -70,8 +65,8 @@ final class ErrorHandler
 
     public function handleError(int $errno, string $errstr, string $errfile = '', int $errline = 0): bool
     {
-        if (error_reporting() === 0) {
-            return false; // suppressed via @ operator
+        if ((error_reporting() & $errno) === 0) {
+            return false; // suppressed (@) or below the error_reporting threshold
         }
         $this->safe(function () use ($errno, $errstr, $errfile, $errline): void {
             $this->client->captureLog([
