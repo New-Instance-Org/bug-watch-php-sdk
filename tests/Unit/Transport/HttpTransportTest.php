@@ -98,4 +98,14 @@ final class HttpTransportTest extends TestCase
         $t = new HttpTransport($config, new RetryPolicy(new RetryOptions()), null, static fn () => null);
         self::assertTrue($t->send([['eventId' => 'a']]));
     }
+
+    public function test_stream_status_parser_reads_last_status_line(): void
+    {
+        $ref = new \ReflectionMethod(HttpTransport::class, 'statusFromHeaderLines');
+        self::assertSame(202, $ref->invoke(null, ['HTTP/1.1 202 Accepted', 'Content-Type: application/json']));
+        self::assertSame(200, $ref->invoke(null, ['HTTP/1.0 301 Moved Permanently', 'HTTP/1.1 200 OK'])); // last wins
+        self::assertSame(0, $ref->invoke(null, []));
+        self::assertSame(0, $ref->invoke(null, null));
+        self::assertSame(0, $ref->invoke(null, ['not a status line']));
+    }
 }

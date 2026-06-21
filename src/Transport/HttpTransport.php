@@ -85,6 +85,9 @@ final class HttpTransport implements TransportInterface
         if (function_exists('curl_init')) {
             return static function (string $body, array $headers, string $url) use ($timeout): array {
                 $ch = curl_init($url);
+                if ($ch === false) {
+                    return ['status' => 0];
+                }
                 curl_setopt_array($ch, [
                     CURLOPT_POST => true,
                     CURLOPT_POSTFIELDS => $body,
@@ -105,30 +108,40 @@ final class HttpTransport implements TransportInterface
 
         // Stream-wrapper fallback (no ext-curl).
         return static function (string $body, array $headers, string $url) use ($timeout): array {
-            $context = stream_context_create(['http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", $headers),
-                'content' => $body,
-                'timeout' => $timeout / 1000,
-                'ignore_errors' => true,
-            ], 'ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => implode("\r\n", $headers),
+                    'content' => $body,
+                    'timeout' => $timeout / 1000,
+                    'ignore_errors' => true,
+                ],
+                'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+            ]);
             $stream = @fopen($url, 'r', false, $context);
-            $status = 0;
-            // PHP 8.5+ provides http_get_last_response_headers(); fall back to the magic variable on older PHP.
-            $responseHeaders = function_exists('http_get_last_response_headers')
-                ? (http_get_last_response_headers() ?? [])
-                : (is_array($GLOBALS['http_response_header'] ?? null) ? $GLOBALS['http_response_header'] : []);
-            foreach ($responseHeaders as $h) {
-                if (preg_match('#HTTP/\S+\s+(\d{3})#', $h, $m)) {
+            if ($stream === false) {
+                return ['status' => 0];
+            }
+            $meta = stream_get_meta_data($stream);
+            fclose($stream);
+
+            return ['status' => self::statusFromHeaderLines($meta['wrapper_data'] ?? null)];
+        };
+    }
+
+    /** @param mixed $lines */
+    private static function statusFromHeaderLines(mixed $lines): int
+    {
+        $status = 0;
+        if (is_array($lines)) {
+            foreach ($lines as $line) {
+                if (is_string($line) && preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m) === 1) {
                     $status = (int) $m[1];
                 }
             }
-            if ($stream !== false) {
-                fclose($stream);
-            }
+        }
 
-            return ['status' => $status];
-        };
+        return $status;
     }
 
     private function resolvePsr17(): (\Psr\Http\Message\RequestFactoryInterface&\Psr\Http\Message\StreamFactoryInterface)|null
