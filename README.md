@@ -100,6 +100,21 @@ Works with Monolog 2 and 3. Keep all your existing handlers — BugWatch is just
 
 Handlers chain any previously-registered handler, respect `error_reporting()`, and never recurse.
 
+## Laravel (auto-discovered)
+
+1. `composer require newinstance/bugwatch-php`
+2. Set `BUGWATCH_KEY` in `.env` (one key per environment).
+3. Add the channel in `config/logging.php` (or add `bugwatch` to your `stack`):
+
+       'bugwatch' => ['driver' => 'bugwatch'],
+
+That's it. `Log::error(...)` (routed to the channel) and **uncaught exceptions** are captured automatically — no code changes. Optional: add `BugWatchContextMiddleware` to your HTTP kernel for request/user tags, and route the browser-session mint for front-end apps:
+
+    use NewInstance\BugWatch\Laravel\Http\BrowserSessionController;
+    Route::post('/bugwatch/session', BrowserSessionController::class);
+
+Queue jobs, Artisan commands, and Octane requests flush + reset scope automatically. Disable auto exception capture with `BUGWATCH_CAPTURE_EXCEPTIONS=false`.
+
 ## License
 
 MIT
