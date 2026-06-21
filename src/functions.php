@@ -2,4 +2,10 @@
 
 declare(strict_types=1);
 
-// Namespaced helper functions are added in Task 14 (createClient, mintBrowserSession).
+namespace NewInstance\BugWatch;
+
+/** @param array<string,mixed> $options */
+function createClient(array $options): Client
+{
+    return new Client(Config::fromArray($options));
+}
