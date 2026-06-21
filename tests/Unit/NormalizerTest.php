@@ -66,4 +66,18 @@ final class NormalizerTest extends TestCase
         $event = $this->normalizer(['beforeSend' => static fn () => null])->build(['message' => 'm'], new Scope());
         self::assertSame([], $event);
     }
+
+    public function test_before_send_can_mutate_and_redaction_still_runs(): void
+    {
+        $n = $this->normalizer(['beforeSend' => static function (array $e): array {
+            $e['tags']['injected'] = 'yes';
+            $e['user'] = ['password' => 'leak'];
+
+            return $e;
+        }]);
+        $event = $n->build(['message' => 'm'], new Scope());
+
+        self::assertSame('yes', $event['tags']['injected']);
+        self::assertSame('[REDACTED]', $event['user']['password']);
+    }
 }

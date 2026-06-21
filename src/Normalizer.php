@@ -36,7 +36,7 @@ final class Normalizer
         if (($input['exception'] ?? null) instanceof \Throwable) {
             $e = $input['exception'];
             $event['exception'] = ExceptionSerializer::serialize($e);
-            $event['message'] ??= ExceptionSerializer::serialize($e)['value'];
+            $event['message'] ??= $event['exception']['value'];
             $causes = ExceptionSerializer::causes($e);
             if ($causes !== []) {
                 $event['causes'] = $causes;
