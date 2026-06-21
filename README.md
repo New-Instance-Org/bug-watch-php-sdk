@@ -52,7 +52,6 @@ Return it to the browser and use the BugWatch JS SDK (`@newinstance/bugwatch`) t
 |---|---|---|
 | `projectKey` | — (required) | `"<keyId>:<secret>"` — server-side only |
 | `release` | — | Version string |
-| `environment` | — | Informational only (real env is key-bound) |
 | `enabled` | `true` | `false` no-ops all capture |
 | `debug` | `false` | Log SDK-internal diagnostics to error_log |
 | `sampleRate` | `1.0` | 0–1 fraction kept |
