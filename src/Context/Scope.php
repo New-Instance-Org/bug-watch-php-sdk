@@ -13,6 +13,7 @@ final class Scope
     /** @var array<string,mixed> */
     public array $contexts = [];
     public ?string $release = null;
+    /** @var string|array<int|string,mixed>|null */
     public string|array|null $fingerprint = null;
 
     public function clone(): self

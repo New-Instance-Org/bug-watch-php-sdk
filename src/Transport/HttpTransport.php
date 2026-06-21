@@ -23,7 +23,9 @@ final class HttpTransport implements TransportInterface
         ?callable $sleeper = null,
     ) {
         $this->sender = $sender ?? $this->makeDefaultSender();
-        $this->sleeper = $sleeper ?? static fn (int $ms): mixed => usleep($ms * 1000);
+        $this->sleeper = $sleeper ?? static function (int $ms): void {
+            usleep($ms * 1000);
+        };
     }
 
     public function send(array $events): bool

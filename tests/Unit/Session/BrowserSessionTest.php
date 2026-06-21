@@ -31,4 +31,11 @@ final class BrowserSessionTest extends TestCase
         $this->expectException(\RuntimeException::class);
         BrowserSession::mint('k:s', 'https://api.newinstance.cloud', $sender);
     }
+
+    public function test_mint_throws_on_malformed_response(): void
+    {
+        $sender = static fn (): array => ['status' => 200, 'body' => '{}']; // 200 but no token/expiresAt
+        $this->expectException(\RuntimeException::class);
+        \NewInstance\BugWatch\Session\BrowserSession::mint('k:s', 'https://api.newinstance.cloud', $sender);
+    }
 }

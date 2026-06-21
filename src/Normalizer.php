@@ -22,14 +22,17 @@ final class Normalizer
      */
     public function build(array $input, Scope $scope): array
     {
+        $level = $input['level'] ?? 'info';
+        $level = is_int($level) || is_string($level) ? $level : 'info';
+
         $event = [
             'eventId' => is_string($input['eventId'] ?? null) ? $input['eventId'] : EventId::generate(),
             'time' => (int) round(microtime(true) * 1000),
-            'level' => Severity::toNumber($input['level'] ?? 'info'),
+            'level' => Severity::toNumber($level),
             'sdk' => ['name' => Sdk::NAME, 'version' => Sdk::VERSION],
         ];
 
-        if (isset($input['message'])) {
+        if (isset($input['message']) && (is_scalar($input['message']) || $input['message'] instanceof \Stringable)) {
             $event['message'] = (string) $input['message'];
         }
 
@@ -82,7 +85,7 @@ final class Normalizer
     }
 
     /**
-     * @param array<string,mixed> $user
+     * @param array<array-key,mixed> $user
      * @return array<string,string>
      */
     public static function userPick(array $user): array
@@ -102,7 +105,7 @@ final class Normalizer
     }
 
     /**
-     * @param array<string,mixed> $kv
+     * @param array<array-key,mixed> $kv
      * @return array<string,string>
      */
     public static function stringMap(array $kv): array

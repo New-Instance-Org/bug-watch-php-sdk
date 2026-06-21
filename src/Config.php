@@ -49,12 +49,12 @@ final class Config
             self::assertUrl($sessionUrl, 'sessionUrl');
         }
 
-        $sampleRate = (float) ($o['sampleRate'] ?? 1.0);
+        $sampleRate = self::toFloat($o['sampleRate'] ?? null, 1.0);
         if ($sampleRate < 0.0 || $sampleRate > 1.0) {
             throw new ConfigException('BugWatch: "sampleRate" must be between 0 and 1.');
         }
 
-        $batchSize = (int) ($o['batchSize'] ?? 50);
+        $batchSize = self::toInt($o['batchSize'] ?? null, 50);
         if ($batchSize < 1 || $batchSize > 5000) {
             throw new ConfigException('BugWatch: "batchSize" must be between 1 and 5000.');
         }
@@ -76,14 +76,24 @@ final class Config
             debug: (bool) ($o['debug'] ?? false),
             sampleRate: $sampleRate,
             sensitiveFields: array_values(array_filter((array) ($o['sensitiveFields'] ?? []), 'is_string')),
-            maxQueueSize: max(1, (int) ($o['maxQueueSize'] ?? 1000)),
+            maxQueueSize: max(1, self::toInt($o['maxQueueSize'] ?? null, 1000)),
             batchSize: $batchSize,
-            flushInterval: max(0, (int) ($o['flushInterval'] ?? 0)),
-            requestTimeout: max(1, (int) ($o['requestTimeout'] ?? 15000)),
+            flushInterval: max(0, self::toInt($o['flushInterval'] ?? null, 0)),
+            requestTimeout: max(1, self::toInt($o['requestTimeout'] ?? null, 15000)),
             retry: $retry,
             httpClient: $httpClient,
             beforeSend: $beforeSend,
         );
+    }
+
+    private static function toFloat(mixed $v, float $default): float
+    {
+        return is_numeric($v) ? (float) $v : $default;
+    }
+
+    private static function toInt(mixed $v, int $default): int
+    {
+        return is_numeric($v) ? (int) $v : $default;
     }
 
     private static function assertUrl(string $url, string $field): void
