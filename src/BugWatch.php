@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NewInstance\BugWatch;
 
 use NewInstance\BugWatch\Exception\ConfigException;
+use NewInstance\BugWatch\Logger\Logger;
 
 final class BugWatch
 {
@@ -61,8 +62,52 @@ final class BugWatch
         self::client()->setTag($key, $value);
     }
 
+    /** @param array<string,mixed> $kv */
+    public static function setTags(array $kv): void
+    {
+        self::client()->setTags($kv);
+    }
+
+    public static function setContext(string $key, mixed $data): void
+    {
+        self::client()->setContext($key, $data);
+    }
+
+    public static function setRelease(string $release): void
+    {
+        self::client()->setRelease($release);
+    }
+
+    /** @param string|array<int|string,mixed> $fingerprint */
+    public static function setFingerprint(string|array $fingerprint): void
+    {
+        self::client()->setFingerprint($fingerprint);
+    }
+
+    public static function withScope(callable $callback): void
+    {
+        self::client()->withScope($callback);
+    }
+
+    /** Clears per-request scope (use at long-running worker/request boundaries). */
+    public static function resetScope(): void
+    {
+        self::client()->resetScope();
+    }
+
+    /** The native PSR-3 logger bound to the singleton client. */
+    public static function getLogger(): Logger
+    {
+        return self::client()->getLogger();
+    }
+
     public static function flush(): bool
     {
         return self::client()->flush();
+    }
+
+    public static function close(): void
+    {
+        self::client()->close();
     }
 }
