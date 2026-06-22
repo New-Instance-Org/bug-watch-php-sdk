@@ -203,7 +203,7 @@ Route::post('/bugwatch/session', BrowserSessionController::class);
 
 Config keys (`config/bugwatch.php`): `key`, `endpoint`, `release`, `enabled`, `sample_rate`,
 `sensitive_fields`, `capture_exceptions` (default `true`), `level`. Turn off automatic exception capture with
-`BUGWATCH_CAPTURE_EXCEPTIONS=false`. Supports Laravel **11, 12, and 13**.
+`BUGWATCH_CAPTURE_EXCEPTIONS=false`. Targets Laravel **11–13** (verified on 13).
 
 ---
 
