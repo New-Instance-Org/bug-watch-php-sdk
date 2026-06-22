@@ -217,7 +217,8 @@ use function NewInstance\BugWatch\mintBrowserSession;
 
 // In a backend route — the only place the secret lives:
 $session = mintBrowserSession(['projectKey' => getenv('BUGWATCH_KEY')]); // ['token' => ..., 'expiresAt' => ...]
-return response()->json($session);
+header('Content-Type: application/json');
+echo json_encode($session);
 ```
 
 (Laravel users can just route `BrowserSessionController` as shown above.) Return the JSON to the browser and
@@ -249,7 +250,6 @@ Pass to `BugWatch::init([...])` / `createClient([...])`:
 |---|---|---|
 | `projectKey` | — (required) | `"<keyId>:<secret>"`. **Server-side only.** Omit it (or set `enabled => false`) to no-op. |
 | `endpoint` | `https://api.newinstance.cloud` | Ingest base URL (internal override). |
-| `sessionUrl` | — | Reserved for browser flows. |
 | `release` | — | Release / version string. |
 | `enabled` | `true` | `false` no-ops all capture. |
 | `debug` | `false` | Log SDK-internal diagnostics to `error_log`. |
@@ -276,7 +276,7 @@ add your own with `sensitiveFields`. User context is limited to `id`, `email`, `
 
 ## Requirements
 
-- **PHP 8.2+** (tested on 8.2 – 8.5).
+- **PHP 8.2+** (the supported floor; developed and verified on PHP 8.5 — a CI matrix across 8.2–8.5 is planned).
 - Hard dependencies are minimal: `psr/log` and the PSR-7/17/18 HTTP interface packages.
 - **Optional** (install only what you use):
   - `monolog/monolog` (`^2 || ^3`) — for the Monolog handler.
