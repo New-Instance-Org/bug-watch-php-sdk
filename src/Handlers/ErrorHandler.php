@@ -50,6 +50,9 @@ final class ErrorHandler
             restore_error_handler();
             $this->errorRegistered = false;
         }
+        // NB: a registered shutdown function cannot be removed in PHP. We intentionally leave
+        // shutdownRegistered = true so a later install() does not register a duplicate; the
+        // lingering handleShutdown() is a no-op unless error_get_last() is a fatal type.
     }
 
     public function handleException(\Throwable $e): void
