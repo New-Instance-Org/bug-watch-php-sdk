@@ -1,6 +1,7 @@
 {
     "name": "newinstance/bugwatch-php",
     "description": "BugWatch SDK for capturing logs, errors, and runtime context from PHP applications.",
+    "version": "0.1.0",
     "type": "library",
     "license": "MIT",
     "keywords": ["bugwatch", "sdk", "logging", "errors", "observability", "psr-3", "monolog", "laravel"],
