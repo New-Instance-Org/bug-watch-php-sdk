@@ -6,36 +6,37 @@ namespace NewInstance\BugWatch\Context;
 
 final class ScopeStack
 {
-    private Scope $root;
-    /** @var list<Scope> */
-    private array $stack = [];
-
-    public function __construct()
-    {
-        $this->root = new Scope();
+    public function __construct(
+        private ScopeStateResolver $resolver = new ProcessScopeStateResolver(),
+    ) {
     }
 
     public function current(): Scope
     {
-        return $this->stack === [] ? $this->root : $this->stack[count($this->stack) - 1];
+        $state = $this->resolver->resolve();
+
+        return $state->stack === [] ? $state->root : $state->stack[count($state->stack) - 1];
     }
 
     public function push(): Scope
     {
+        $state = $this->resolver->resolve();
         $scope = $this->current()->clone();
-        $this->stack[] = $scope;
+        $state->stack[] = $scope;
 
         return $scope;
     }
 
     public function pop(): void
     {
-        array_pop($this->stack);
+        $state = $this->resolver->resolve();
+        array_pop($state->stack);
     }
 
     public function reset(): void
     {
-        $this->root = new Scope();
-        $this->stack = [];
+        $state = $this->resolver->resolve();
+        $state->root = new Scope();
+        $state->stack = [];
     }
 }

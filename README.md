@@ -37,7 +37,7 @@ receives events transparently.
 - [Privacy and redaction](#privacy-and-redaction)
 - [Sampling](#sampling)
 - [Browser / front-end apps (secure flow)](#browser--front-end-apps-secure-flow)
-- [Long-running runtimes](#long-running-runtimes-octane-queue-workers-cli-loops)
+- [Per-request context and concurrency](#per-request-context-and-concurrency)
 - [Verification](#verification)
 - [Production checklist](#production-checklist)
 - [Troubleshooting](#troubleshooting)
@@ -607,22 +607,139 @@ token. Your `projectKey` / secret is never in the browser.
 
 ---
 
-## Long-running runtimes (Octane, queue workers, CLI loops)
+## Per-request context and concurrency
 
-In classic PHP-FPM each request is its own process, so scope cannot leak. In **persistent** runtimes
-(Laravel Octane, queue workers, long-running CLI scripts), reset scope at each unit-of-work boundary:
+PHP's classic "shared-nothing" execution model means each PHP-FPM (or mod\_php) request runs in its
+own process, so user identity, tags, and context set in one request can never bleed into another.
+Long-running runtimes — where one PHP process services many requests in sequence or concurrently —
+require a bit more thought. The SDK handles this automatically where it can, and gives you explicit
+tools where it cannot.
+
+### Per-runtime isolation table
+
+| Runtime | How isolation works | What you must do |
+|---|---|---|
+| **PHP-FPM / mod\_php / CLI (one-shot)** | Each request is its own OS process. Scope is process-private. | Nothing. |
+| **Laravel Octane / RoadRunner (sequential per worker)** | One process services requests one after another. Without a reset, the previous request's user/tags survive into the next. | Register `BugWatchContextMiddleware` — it sets the user from `$request->user()` and calls `flush()` + `resetScope()` in `terminate()`. The `BugWatchServiceProvider` also listens to Octane's `RequestTerminated` event and resets there. Either mechanism is sufficient; using both is harmless. |
+| **Swoole / OpenSwoole / FrankenPHP-with-Swoole (concurrent coroutines)** | Multiple requests execute concurrently inside one worker as separate coroutines. | **Nothing.** When the `swoole` extension is loaded, the SDK automatically stores each coroutine's scope in Swoole's per-coroutine context (`Swoole\Coroutine::getContext()`). Swoole destroys that context when the coroutine ends, so scope is garbage-collected with the request. Concurrent requests in one worker never share a user or tag. |
+| **Queue workers (Laravel)** | One process runs many jobs sequentially. | The `BugWatchServiceProvider` listens to `JobProcessed` and `JobFailed` and calls `flush()` + `resetScope()` after each job automatically. |
+| **Artisan commands** | Command runs, then process exits. | `CommandFinished` triggers a `flush()`. For long-running commands that loop (e.g. a custom consumer), call `resetScope()` at each iteration boundary yourself. |
+
+**PHP-FPM delivery note:** Under PHP-FPM the SDK calls `fastcgi_finish_request()` before flushing,
+so the HTTP response is returned to the browser _before_ events are transmitted. No added request latency.
+
+---
+
+### Laravel per-request user (recommended pattern)
+
+Register `BugWatchContextMiddleware` in your HTTP middleware stack. On every authenticated request it
+reads the user from `$request->user()` and attaches it to the scope automatically. On request
+termination it flushes events and resets the scope so the worker is clean for the next request.
 
 ```php
-// At the end of each request / job / iteration:
-$client->flush();       // deliver queued events
-$client->resetScope();  // clear user / tags / context for the next unit
+// app/Http/Kernel.php  (Laravel 10/11 using Kernel) or
+// bootstrap/app.php    (Laravel 11 middleware() style)
+\NewInstance\BugWatch\Laravel\BugWatchContextMiddleware::class,
 ```
 
-The Laravel integration does this automatically for Octane requests, queue jobs, and Artisan commands.
+The middleware also sets `method`, `url`, and (when named) `route` tags for every event in that
+request. You can stack your own per-request enrichment on top in a separate middleware:
 
-**PHP-FPM delivery note:** the default delivery model is buffer → flush on shutdown. Under PHP-FPM the
-SDK calls `fastcgi_finish_request()` before flushing, so the response is returned to the user _before_
-events are sent. No added request latency.
+```php
+// app/Http/Middleware/BugWatchRequestTags.php
+use Closure;
+use Illuminate\Http\Request;
+use NewInstance\BugWatch\BugWatch;
+
+class BugWatchRequestTags
+{
+    public function handle(Request $request, Closure $next): mixed
+    {
+        BugWatch::setTag('tenant', $request->header('X-Tenant-Id', 'none'));
+        BugWatch::setTag('plan', auth()->user()?->plan ?? 'guest');
+        return $next($request);
+    }
+}
+```
+
+These tags are scoped to the current request on long-running runtimes because `BugWatchContextMiddleware`
+resets the scope after the response is sent.
+
+---
+
+### Universal escape hatch — explicit per-capture context
+
+On **any** runtime — including runtimes you manage yourself — you can pass `user` and `tags` directly
+in the capture call. No shared scope is touched; the values apply only to that one event.
+
+```php
+// captureException
+BugWatch::captureException($e, [
+    'user' => ['id' => $userId, 'email' => $userEmail],
+    'tags' => ['route' => $routeName, 'tenant' => $tenantId],
+]);
+
+// captureLog
+BugWatch::captureLog([
+    'level'   => 'error',
+    'message' => 'Payment job failed',
+    'exception' => $e,
+    'user'    => ['id' => $userId],
+    'tags'    => ['order_id' => $orderId, 'gateway' => 'paystack'],
+    'fingerprint' => 'payment-job-failure',
+]);
+```
+
+This is the safest choice for **non-Laravel long-running workers** or any custom loop where you do
+not have middleware infrastructure — every capture is self-contained.
+
+---
+
+### Anti-pattern: scope leak on a persistent worker
+
+On a persistent worker (Octane sequential, RoadRunner, or a hand-rolled CLI loop) calling
+`BugWatch::setUser(...)` once per request **without** a reset means the identity persists into the
+next request on the same worker:
+
+```php
+// ❌ WRONG — on a persistent worker, request B inherits request A's user
+while ($request = $server->accept()) {
+    BugWatch::setUser(['id' => $request->userId]);  // set for this request ...
+    handle($request);
+    // ... but never cleared — next request gets the same user
+}
+
+// ✅ CORRECT — reset at each boundary
+while ($request = $server->accept()) {
+    BugWatch::setUser(['id' => $request->userId]);
+    handle($request);
+    BugWatch::client()->flush();
+    BugWatch::client()->resetScope();   // clean slate for the next request
+}
+```
+
+In Laravel, `BugWatchContextMiddleware` (HTTP) and the `BugWatchServiceProvider` (Octane / queue /
+command) handle this boundary reset for you. For any other long-running loop, call `resetScope()`
+yourself — or use explicit per-capture context and skip scope entirely.
+
+---
+
+### `withScope` and `resetScope` quick reference
+
+```php
+// withScope — temporary isolated scope for a single code block.
+// Tags/user/context set inside are discarded when the callback returns.
+// The outer scope is completely untouched.
+BugWatch::withScope(function ($scope) use ($tenantId) {
+    $scope->tags['tenant'] = $tenantId;
+    $scope->user = ['id' => 'u_999'];
+    BugWatch::captureMessage('Scoped event', 'warn');
+});
+
+// resetScope — wipe all scope state (user / tags / context / release / fingerprint).
+// Call this at a request / job / iteration boundary on persistent runtimes.
+BugWatch::client()->resetScope();
+```
 
 ---
 
@@ -662,7 +779,7 @@ $diag = BugWatch::client()->diagnostics();
 - [ ] `debug` is `false` (the default) in production.
 - [ ] `release` is set (a version string or git SHA) so you can correlate issues with deploys.
 - [ ] `sensitiveFields` includes any domain-specific PII beyond the built-in list.
-- [ ] For long-running processes (Octane, workers): `flush()` + `resetScope()` at every boundary.
+- [ ] For long-running processes (Octane, workers): `BugWatchContextMiddleware` registered, or `flush()` + `resetScope()` called at every unit-of-work boundary (Swoole coroutines are isolated automatically).
 - [ ] `BrowserSessionController` (or equivalent) is protected by an auth middleware.
 - [ ] `sampleRate` is tuned if you have very high event volume.
 - [ ] `ext-curl` is available (verify with `php -m | grep curl`).

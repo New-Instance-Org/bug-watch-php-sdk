@@ -6,7 +6,10 @@ namespace NewInstance\BugWatch\Tests\Unit;
 
 use NewInstance\BugWatch\Client;
 use NewInstance\BugWatch\Config;
+use NewInstance\BugWatch\Context\CoroutineScopeStateResolver;
+use NewInstance\BugWatch\Context\ScopeStack;
 use NewInstance\BugWatch\Testing\InMemoryTransport;
+use NewInstance\BugWatch\Tests\Unit\Context\FakeCoroutineContext;
 use PHPUnit\Framework\TestCase;
 
 final class ClientTest extends TestCase
@@ -117,5 +120,41 @@ final class ClientTest extends TestCase
         [$client] = $this->client(['sampleRate' => 0.0]);
         $id = $client->captureMessage('m');
         self::assertStringStartsWith('bw_e_', $id);
+    }
+
+    public function test_concurrent_coroutines_attach_their_own_user(): void
+    {
+        // Simulate two coroutines interleaving in one worker (no real Swoole needed).
+        $fake = new FakeCoroutineContext();
+        $transport = new InMemoryTransport();
+        $client = new Client(
+            Config::fromArray(['projectKey' => 'k:s']),
+            $transport,
+            null,
+            new ScopeStack(new CoroutineScopeStateResolver($fake)),
+        );
+
+        // Coroutine 1 begins handling a request for alice.
+        $fake->cid = 1;
+        $client->setUser(['id' => 'alice']);
+
+        // Control yields to coroutine 2, which sets bob and captures first.
+        $fake->cid = 2;
+        $client->setUser(['id' => 'bob']);
+        $client->captureMessage('from-bob');
+
+        // Back to coroutine 1, which captures — must still be alice, not bob.
+        $fake->cid = 1;
+        $client->captureMessage('from-alice');
+
+        $client->flush();
+
+        self::assertCount(2, $transport->events);
+        $byMessage = [];
+        foreach ($transport->events as $event) {
+            $byMessage[$event['message']] = $event['user'];
+        }
+        self::assertSame(['id' => 'bob'], $byMessage['from-bob']);
+        self::assertSame(['id' => 'alice'], $byMessage['from-alice']);
     }
 }
