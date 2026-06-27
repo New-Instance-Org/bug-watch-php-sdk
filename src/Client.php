@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace NewInstance\BugWatch;
 
+use NewInstance\BugWatch\Context\CoroutineScopeStateResolver;
+use NewInstance\BugWatch\Context\ProcessScopeStateResolver;
 use NewInstance\BugWatch\Context\ScopeStack;
+use NewInstance\BugWatch\Context\SwooleCoroutineContext;
 use NewInstance\BugWatch\Logger\Logger;
 use NewInstance\BugWatch\Queue\EventQueue;
 use NewInstance\BugWatch\Redaction\Redactor;
@@ -28,9 +31,18 @@ final class Client
         public readonly Config $config,
         ?TransportInterface $transport = null,
         ?Diagnostics $diagnostics = null,
+        ?ScopeStack $scopes = null,
     ) {
         $this->diagnostics = $diagnostics ?? new Diagnostics($config->debug);
-        $this->scopes = new ScopeStack();
+        $this->scopes = $scopes ?? new ScopeStack(
+            // Under Swoole/OpenSwoole the scope must be coroutine-local so concurrent
+            // coroutines in one worker cannot clobber each other's user/tags/context.
+            // Everywhere else (PHP-FPM, Octane-sequential, CLI) the default
+            // process-global resolver keeps the exact historical behaviour.
+            \extension_loaded('swoole')
+                ? new CoroutineScopeStateResolver(new SwooleCoroutineContext())
+                : new ProcessScopeStateResolver(),
+        );
         $this->queue = new EventQueue($config->maxQueueSize);
         $this->normalizer = new Normalizer($config, new Redactor($config->sensitiveFields));
         $this->transport = $transport ?? ($config->enabled
