@@ -307,7 +307,7 @@ Once the above is in place, Laravel gives you:
 
 ### 5. Optional extras
 
-**Request/route/user context middleware** — adds `method`, `url`, `route`, and the authenticated user ID
+**Request/route/user context middleware** — adds `method`, `url`, `route`, and the authenticated user
 to every event from that request:
 
 ```php
@@ -315,8 +315,25 @@ to every event from that request:
 \NewInstance\BugWatch\Laravel\BugWatchContextMiddleware::class,
 ```
 
-The middleware also calls `flush()` + `resetScope()` at request termination, so events are delivered
-before the response lands and scope is clean for the next request.
+By default it attaches only the default guard's user **id**. To attach a richer user — email, name,
+tenant, or the identity from a custom guard — register a resolver once from a service provider's
+`boot()`. It receives the request and returns the user array (or `null` for anonymous):
+
+```php
+use Illuminate\Http\Request;
+use NewInstance\BugWatch\Laravel\BugWatchContextMiddleware;
+
+// app/Providers/AppServiceProvider.php — boot()
+BugWatchContextMiddleware::resolveUserUsing(function (Request $request): ?array {
+    $user = $request->user();
+    return $user ? ['id' => (string) $user->id, 'email' => $user->email] : null;
+});
+```
+
+Registering it in `boot()` (not in `config/bugwatch.php`) keeps `php artisan config:cache` working —
+closures cannot be cached in config. The resolver runs inside a guard: if it throws, the request is
+never affected. The middleware also calls `flush()` + `resetScope()` at request termination, so events
+are delivered before the response lands and scope is clean for the next request.
 
 **Browser session minting** — registers a route your JavaScript front-end can call to get a short-lived
 session token (see [browser flow](#browser--front-end-apps-secure-flow)):
@@ -640,6 +657,18 @@ termination it flushes events and resets the scope so the worker is clean for th
 // app/Http/Kernel.php  (Laravel 10/11 using Kernel) or
 // bootstrap/app.php    (Laravel 11 middleware() style)
 \NewInstance\BugWatch\Laravel\BugWatchContextMiddleware::class,
+```
+
+Out of the box it attaches only the user **id**. To attach email/name/tenant or read a custom guard,
+register a resolver once in a service provider's `boot()` (see
+[Optional extras](#5-optional-extras) above):
+
+```php
+BugWatchContextMiddleware::resolveUserUsing(
+    fn (\Illuminate\Http\Request $r) => $r->user()
+        ? ['id' => (string) $r->user()->id, 'email' => $r->user()->email]
+        : null,
+);
 ```
 
 The middleware also sets `method`, `url`, and (when named) `route` tags for every event in that
