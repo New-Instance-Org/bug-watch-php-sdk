@@ -4,6 +4,19 @@ All notable changes to `newinstance/bugwatch-php` are documented here.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **Configurable user resolver for the Laravel middleware** —
+  `BugWatchContextMiddleware::resolveUserUsing(fn (Request $r) => ['id' => ..., 'email' => ...])`,
+  registered once from a service provider's `boot()`. The middleware previously attached only the
+  default guard's user id; a resolver lets you attach email/name/tenant or read a custom guard. It
+  runs inside a guard (a throwing resolver never affects the request) and returning `null` attaches
+  no user. Register it in `boot()` rather than config so `config:cache` keeps working.
+
+---
+
 ## 0.1.0 — 2026-06-21
 
 Initial public release.
