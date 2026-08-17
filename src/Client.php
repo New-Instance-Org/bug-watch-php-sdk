@@ -63,6 +63,8 @@ final class Client
                 'level' => $hint['level'] ?? 'error',
                 'tags' => $hint['tags'] ?? [],
                 'user' => $hint['user'] ?? [],
+                'traceId' => $hint['traceId'] ?? null,
+                'spanId' => $hint['spanId'] ?? null,
             ]);
             $this->captured[$e] = $id;
 
@@ -115,6 +117,9 @@ final class Client
                     $this->diagnostics->incr('dropped_batches');
                 }
             }
+            if ($this->spanExporter !== null && !$this->spanExporter->flush()) {
+                $ok = false;
+            }
 
             return $ok;
         }, false);
@@ -152,6 +157,71 @@ final class Client
     public function setRelease(string $release): void
     {
         $this->scopes->current()->release = $release;
+    }
+
+    private ?\NewInstance\BugWatch\Tracing\SpanExporter $spanExporter = null;
+
+    private function spans(): \NewInstance\BugWatch\Tracing\SpanExporter
+    {
+        return $this->spanExporter ??= new \NewInstance\BugWatch\Tracing\SpanExporter($this->config);
+    }
+
+    /** @param array{kind?:int,attrs?:array<string,mixed>,traceId?:?string,parentSpanId?:?string} $options */
+    public function startSpan(string $name, array $options = []): \NewInstance\BugWatch\Tracing\Span
+    {
+        $ctx = $this->getTraceContext();
+
+        return new \NewInstance\BugWatch\Tracing\Span(
+            fn (array $span) => $this->spans()->add($span),
+            $name,
+            $ctx['traceId'],
+            $ctx['spanId'],
+            $options,
+        );
+    }
+
+    /**
+     * @template T
+     * @param callable(\NewInstance\BugWatch\Tracing\Span):T $fn
+     * @param array{kind?:int,attrs?:array<string,mixed>,traceId?:?string,parentSpanId?:?string} $options
+     * @return T
+     */
+    public function withSpan(string $name, callable $fn, array $options = []): mixed
+    {
+        $span = $this->startSpan($name, $options);
+        $scope = $this->scopes->current();
+        $prevTrace = $scope->traceId;
+        $prevSpan = $scope->spanId;
+        $scope->traceId = $span->traceId;
+        $scope->spanId = $span->spanId;
+        try {
+            $result = $fn($span);
+            $span->end();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $span->recordException($e);
+            $span->end();
+            throw $e;
+        } finally {
+            $scope->traceId = $prevTrace;
+            $scope->spanId = $prevSpan;
+        }
+    }
+
+    public function setTraceContext(?string $traceId, ?string $spanId = null): void
+    {
+        $scope = $this->scopes->current();
+        $scope->traceId = TraceContext::normalizeTraceId($traceId);
+        $scope->spanId = TraceContext::normalizeSpanId($spanId);
+    }
+
+    /** @return array{traceId:?string,spanId:?string} */
+    public function getTraceContext(): array
+    {
+        $scope = $this->scopes->current();
+
+        return ['traceId' => $scope->traceId, 'spanId' => $scope->spanId];
     }
 
     /** @param string|array<int|string,mixed> $fingerprint */
