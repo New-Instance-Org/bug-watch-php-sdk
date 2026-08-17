@@ -8,6 +8,7 @@ return [
     'key' => env('BUGWATCH_KEY'),
     'endpoint' => env('BUGWATCH_ENDPOINT', 'https://api.newinstance.cloud'),
     'release' => env('BUGWATCH_RELEASE'),
+    'serviceName' => env('BUGWATCH_SERVICE_NAME'),
     'enabled' => env('BUGWATCH_ENABLED', true),
     'sample_rate' => is_numeric($sampleRate) ? (float) $sampleRate : 1.0,
     'sensitive_fields' => [],

@@ -166,7 +166,7 @@ final class Client
         return $this->spanExporter ??= new \NewInstance\BugWatch\Tracing\SpanExporter($this->config);
     }
 
-    /** @param array{kind?:int,attrs?:array<string,mixed>,traceId?:?string,parentSpanId?:?string} $options */
+    /** @param array{kind?:int,attrs?:array<string,mixed>,traceId?:?string,parentSpanId?:?string,links?:list<array{traceId:string,spanId:string,attrs?:array<string,mixed>}>} $options */
     public function startSpan(string $name, array $options = []): \NewInstance\BugWatch\Tracing\Span
     {
         $ctx = $this->getTraceContext();
@@ -183,7 +183,7 @@ final class Client
     /**
      * @template T
      * @param callable(\NewInstance\BugWatch\Tracing\Span):T $fn
-     * @param array{kind?:int,attrs?:array<string,mixed>,traceId?:?string,parentSpanId?:?string} $options
+     * @param array{kind?:int,attrs?:array<string,mixed>,traceId?:?string,parentSpanId?:?string,links?:list<array{traceId:string,spanId:string,attrs?:array<string,mixed>}>} $options
      * @return T
      */
     public function withSpan(string $name, callable $fn, array $options = []): mixed
