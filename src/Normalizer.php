@@ -70,6 +70,16 @@ final class Normalizer
             $event['contexts'] = $scope->contexts;
         }
 
+        $traceId = TraceContext::normalizeTraceId($input['traceId'] ?? null) ?? TraceContext::normalizeTraceId($scope->traceId);
+        if ($traceId !== null) {
+            $event['traceId'] = $traceId;
+            $spanSource = TraceContext::normalizeTraceId($input['traceId'] ?? null) !== null ? ($input['spanId'] ?? null) : $scope->spanId;
+            $spanId = TraceContext::normalizeSpanId($spanSource);
+            if ($spanId !== null) {
+                $event['spanId'] = $spanId;
+            }
+        }
+
         if (is_callable($this->config->beforeSend)) {
             $result = ($this->config->beforeSend)($event);
             if ($result === null) {

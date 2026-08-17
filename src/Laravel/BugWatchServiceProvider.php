@@ -31,6 +31,9 @@ final class BugWatchServiceProvider extends ServiceProvider
             if (is_string($cfg['endpoint'] ?? null)) {
                 $options['endpoint'] = $cfg['endpoint'];
             }
+            if (is_string($cfg['serviceName'] ?? null)) {
+                $options['serviceName'] = $cfg['serviceName'];
+            }
             if (is_string($cfg['release'] ?? null)) {
                 $options['release'] = $cfg['release'];
             }

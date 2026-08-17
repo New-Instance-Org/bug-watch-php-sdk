@@ -15,6 +15,8 @@ final class Scope
     public ?string $release = null;
     /** @var string|array<int|string,mixed>|null */
     public string|array|null $fingerprint = null;
+    public ?string $traceId = null;
+    public ?string $spanId = null;
 
     public function clone(): self
     {
@@ -24,6 +26,8 @@ final class Scope
         $c->contexts = $this->contexts;
         $c->release = $this->release;
         $c->fingerprint = $this->fingerprint;
+        $c->traceId = $this->traceId;
+        $c->spanId = $this->spanId;
 
         return $c;
     }

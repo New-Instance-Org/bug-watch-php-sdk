@@ -36,6 +36,8 @@ receives events transparently.
 - [Isolated scopes](#isolated-scopes-withscope--resetscope)
 - [Privacy and redaction](#privacy-and-redaction)
 - [Sampling](#sampling)
+- [Distributed tracing](#distributed-tracing)
+- [Testing](#testing)
 - [Browser / front-end apps (secure flow)](#browser--front-end-apps-secure-flow)
 - [Per-request context and concurrency](#per-request-context-and-concurrency)
 - [Verification](#verification)
@@ -141,13 +143,14 @@ Pass any of these keys to `BugWatch::init([...])` or `createClient([...])`:
 | `sessionUrl` | `string` | `null` | Your backend route that mints a browser session token (see [browser flow](#browser--front-end-apps-secure-flow)). Used instead of `projectKey` when routing ingest through a session endpoint. |
 | `endpoint` | `string` | `https://api.newinstance.cloud` | Ingest base URL. Change only when self-hosting or during local development. |
 | `release` | `string` | `null` | Release / version string (e.g. `"2.4.1"`, `"abc1234"`). Shown in the dashboard and used for issue grouping. |
+| `serviceName` | `string` | `null` | Logical service name stamped on spans (OTel `service.name`); powers the service map. Only affects tracing, not events. |
 | `enabled` | `bool` | `true` | Set to `false` to no-op all capture (useful in tests). |
 | `debug` | `bool` | `false` | Log SDK-internal diagnostics to `error_log`. Useful during initial setup. |
 | `sampleRate` | `float` | `1.0` | Fraction of events to keep: `0.0` = drop all, `1.0` = keep all, `0.1` = keep 10%. |
 | `sensitiveFields` | `string[]` | `[]` | Extra key names to redact (merged with the built-in list). |
 | `maxQueueSize` | `int` | `1000` | Bounded in-memory buffer. Oldest events are dropped on overflow. |
 | `batchSize` | `int` | `50` | Number of events per ingest request (1–5000). |
-| `flushInterval` | `int` | `0` | Milliseconds between auto-flushes. `0` = flush only on shutdown / explicit call. |
+| `flushInterval` | `int` | `0` | Reserved. PHP has no background timer: the SDK flushes when the queue reaches `batchSize`, on shutdown, on explicit `flush()`, and at the Laravel lifecycle hooks. |
 | `requestTimeout` | `int` | `15000` | Per-request timeout in milliseconds. |
 | `retry` | `RetryOptions` | 3 attempts, 200 ms → 5 s, ×2 + jitter | Pass a `RetryOptions` instance to customise retry behaviour. |
 | `httpClient` | `object` | `null` | Inject a **PSR-18** HTTP client (e.g. Guzzle, Symfony HttpClient). If omitted, cURL is used, falling back to PHP streams. |
@@ -163,9 +166,11 @@ $eventId = BugWatch::captureException($e);
 
 // Capture with extra hints
 $eventId = BugWatch::captureException($e, [
-    'level' => 'fatal',               // override the default 'error' level
-    'tags'  => ['component' => 'checkout'],
-    'user'  => ['id' => 'u_123'],
+    'level'   => 'fatal',             // override the default 'error' level
+    'tags'    => ['component' => 'checkout'],
+    'user'    => ['id' => 'u_123'],
+    'traceId' => $traceId,            // optional: pin this event to a specific trace
+    'spanId'  => $spanId,             //           (hint wins over the scope's trace context)
 ]);
 
 // Capture a plain message
@@ -301,9 +306,14 @@ Once the above is in place, Laravel gives you:
 
 - **Unhandled exceptions** captured automatically — Laravel's own exception reporting is untouched.
 - **`Log::error(...)` / `Log::warning(...)` etc.** routed to the `bugwatch` channel are captured.
+- **Distributed trace joining**: the context middleware reads the inbound `traceparent` header, so
+  requests traced by an upstream service (or the BugWatch JS SDK's `wrapFetch`) keep one trace ID
+  across services.
 - **Queue jobs** flush and reset per-job scope automatically (both `JobProcessed` and `JobFailed`).
 - **Artisan commands** flush at command completion.
 - **Laravel Octane** flushes and resets scope at each request termination.
+- **Plain PHP-FPM apps** still flush at end of request via the framework `terminating()` hook,
+  even without the middleware.
 
 ### 5. Optional extras
 
@@ -555,8 +565,154 @@ BugWatch::init([
 ]);
 ```
 
-Events that are dropped by sampling still return a stable event ID so your error-boundary UI can
-display it — they just never reach the server.
+Events that are dropped by sampling still return an event ID so your error-boundary UI can
+display one; when the input did not carry its own `eventId` the returned ID is freshly generated
+and will not exist on the server.
+
+---
+
+## Distributed tracing
+
+The SDK ties errors and logs to end-to-end traces and can create spans of its own, so BugWatch
+reconstructs a whole request across services: PHP, Node, and anything else speaking the W3C
+`traceparent` standard.
+
+Set a `serviceName` so spans are attributed to the right service on the service map:
+
+```php
+BugWatch::init([
+    'projectKey'  => getenv('BUGWATCH_KEY'),
+    'serviceName' => 'refund-worker',
+]);
+```
+
+### Joining an incoming trace
+
+In Laravel, the bundled `BugWatchContextMiddleware` reads the inbound `traceparent` header
+automatically; every capture and span in that request joins the caller's trace. Outside Laravel,
+parse it yourself:
+
+```php
+use NewInstance\BugWatch\TraceContext;
+
+$parsed = TraceContext::parseTraceparent($_SERVER['HTTP_TRACEPARENT'] ?? null);
+if ($parsed !== null) {
+    BugWatch::setTraceContext($parsed['traceId'], $parsed['spanId']);
+}
+```
+
+`setTraceContext` validates strictly (32 and 16 lowercase hex chars, all-zero IDs rejected);
+invalid IDs are dropped. `BugWatch::getTraceContext()` reads the active context back, and
+`BugWatch::setTraceContext(null, null)` clears it.
+
+### Creating spans: withSpan and startSpan
+
+`withSpan` runs a callback inside a timed span. It pushes the span's IDs onto the scope for the
+duration (so captures and logs inside are linked to it), records a thrown exception on the span
+(type, message, stacktrace) with error status, restores the scope, and rethrows:
+
+```php
+$result = BugWatch::withSpan('db.query load-cart', function ($span) use ($cartId) {
+    $span->setAttr('db.system', 'mysql');
+
+    return loadCart($cartId);
+}, ['kind' => 3]); // OTel span kind: 1 internal, 2 server, 3 client, 4 producer, 5 consumer
+```
+
+`startSpan` gives manual control:
+
+```php
+$span = BugWatch::startSpan('job.process refunds', [
+    'kind'  => 5,
+    'attrs' => ['messaging.system' => 'redis-streams'],
+]);
+try {
+    processJob($job);
+    $span->end();
+} catch (\Throwable $e) {
+    $span->recordException($e);
+    $span->end();
+    throw $e;
+}
+```
+
+Attach `code.filepath`, `code.lineno`, and `code.function` attributes and BugWatch shows the
+source location on the span detail panel. `end()` is idempotent; a second call is ignored.
+
+Span limits: 50 attributes (keys and values truncated to 200 chars, non-scalar values dropped,
+booleans stored as `"true"`/`"false"`), 20 events, 10 links, name truncated to 200 chars,
+exception messages and stacktraces truncated to 8000 chars.
+
+### Propagating to downstream services
+
+Send the current trace context on outbound calls so the next service joins your trace:
+
+```php
+// From the active scope:
+$headers = BugWatch::traceHeaders(); // ['traceparent' => '00-<traceId>-<spanId>-01'] or []
+
+// From a specific span (preferred inside withSpan, so the child links to that exact span):
+$headers = ['traceparent' => $span->traceparent()];
+```
+
+`TraceContext::buildTraceparent($traceId, $spanId)` builds the header from raw IDs.
+
+### Linking spans across traces (queues and jobs)
+
+A queue consumer usually starts its own trace but should point back at the producer. Pass the
+producer's IDs as a span link and BugWatch draws the async producer-to-consumer edge on the
+service map:
+
+```php
+$span = BugWatch::startSpan('emails process', [
+    'kind'  => 5,
+    'links' => [[
+        'traceId' => $message['traceId'],
+        'spanId'  => $message['spanId'],
+        'attrs'   => ['messaging.message.id' => $message['id']],
+    ]],
+]);
+```
+
+### How spans are delivered
+
+Spans are exported separately from events: batched OTLP JSON posted to `/v1/traces` on the same
+API host, authenticated with your project key. `BugWatch::flush()` (and the Laravel lifecycle
+hooks that call it) flushes buffered spans together with events. The span buffer holds 200 spans;
+oldest are dropped on overflow.
+
+Span-specific caveats:
+
+- Span export uses cURL directly; the `httpClient` (PSR-18), `retry`, `beforeSend`, `sampleRate`,
+  and redaction options apply to events only, not spans. Do not put sensitive data in span
+  attributes.
+- Spans require a `projectKey`. A `sessionUrl`-only (browser-flow) client captures events but does
+  not export spans.
+
+---
+
+## Testing
+
+Inject the in-memory transport to assert on captured events without any network:
+
+```php
+use NewInstance\BugWatch\Client;
+use NewInstance\BugWatch\Config;
+use NewInstance\BugWatch\Testing\InMemoryTransport;
+
+$transport = new InMemoryTransport();
+$client = new Client(Config::fromArray(['projectKey' => 'k:s']), $transport);
+
+$client->captureMessage('hello');
+$client->flush();
+
+assert($transport->events[0]['message'] === 'hello');
+```
+
+`InMemoryTransport` receives events only. Spans bypass the transport; to intercept them, pass a
+sender callable as the second constructor argument of
+`NewInstance\BugWatch\Tracing\SpanExporter` (it receives the OTLP JSON body, headers, and URL
+and must return `['status' => 200]`).
 
 ---
 

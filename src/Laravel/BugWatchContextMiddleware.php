@@ -7,6 +7,7 @@ namespace NewInstance\BugWatch\Laravel;
 use Closure;
 use Illuminate\Http\Request;
 use NewInstance\BugWatch\Client;
+use NewInstance\BugWatch\TraceContext;
 
 final class BugWatchContextMiddleware
 {
@@ -46,6 +47,10 @@ final class BugWatchContextMiddleware
             $user = self::resolveUser($request);
             if ($user !== null) {
                 $this->client->setUser($user);
+            }
+            $tp = TraceContext::parseTraceparent($request->header('traceparent'));
+            if ($tp !== null) {
+                $this->client->setTraceContext($tp['traceId'], $tp['spanId']);
             }
         } catch (\Throwable) {
             // context enrichment must never break the request

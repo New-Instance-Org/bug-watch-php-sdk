@@ -8,6 +8,18 @@ All notable changes to `newinstance/bugwatch-php` are documented here.
 
 ### Added
 
+- **Distributed tracing.** `BugWatch::startSpan()` / `BugWatch::withSpan()` create W3C/OTel-compatible
+  spans (kind, attributes, exception events with stacktraces, error status, span links) exported as
+  OTLP JSON to the platform traces endpoint; `Span::traceparent()` and `BugWatch::traceHeaders()`
+  propagate the context to downstream services. New `serviceName` config option (also mapped from
+  `BUGWATCH_SERVICE_NAME` by the Laravel provider) names the service on the BugWatch service map.
+- **Trace context on events.** `BugWatch::setTraceContext()` / `getTraceContext()`, strict
+  `TraceContext::parseTraceparent()` / `buildTraceparent()` helpers, per-capture `traceId`/`spanId`
+  hints on `captureException`, and `traceId`/`spanId` emitted on the wire so errors and logs join
+  the request's trace.
+- **Laravel middleware reads `traceparent`.** `BugWatchContextMiddleware` joins the caller's trace
+  automatically on every request that carries the header.
+
 - **Configurable user resolver for the Laravel middleware** —
   `BugWatchContextMiddleware::resolveUserUsing(fn (Request $r) => ['id' => ..., 'email' => ...])`,
   registered once from a service provider's `boot()`. The middleware previously attached only the
